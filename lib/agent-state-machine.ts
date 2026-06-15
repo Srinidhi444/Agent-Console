@@ -6,8 +6,6 @@ import type {
   ContextSnapshotMessage,
   StreamEndMessage,
   ErrorMessage,
-  ChatMessage,
-  ToolCallState,
   TraceEvent,
   ContextSnapshot,
   PingMessage,
@@ -79,10 +77,10 @@ export class AgentStateMachine {
   private handleToken(msg: TokenMessage): void {
     const store = useAgentStore.getState()
 
-    this.ensureChatMessage(msg.stream_id)
-
-    store.appendToken(msg.stream_id, msg.text)
+    store.ensureChatMessage(msg.stream_id)
+    store.appendToken(msg.stream_id, msg.seq, msg.text)
     store.setStreamStatus(msg.stream_id, 'streaming')
+
     this.accumulateTokenBatch(msg)
   }
 
@@ -95,20 +93,18 @@ export class AgentStateMachine {
       this.ackedToolCalls.add(msg.call_id)
     }
 
-    console.log('TOOL_CALL received in state machine', msg)
-
     this.flushTokenBatch()
 
     const store = useAgentStore.getState()
 
-    this.ensureChatMessage(msg.stream_id)
+    store.ensureChatMessage(msg.stream_id)
 
-    const toolCall: ToolCallState = {
+    const toolCall = {
       call_id: msg.call_id,
       tool_name: msg.tool_name,
       args: msg.args,
       result: null,
-      status: 'acked',
+      status: 'acked' as const,
       seq: msg.seq,
       result_seq: null,
     }
@@ -144,10 +140,11 @@ export class AgentStateMachine {
   private handleToolResult(msg: ToolResultMessage): void {
     const store = useAgentStore.getState()
 
-    this.ensureChatMessage(msg.stream_id)
-
+    store.ensureChatMessage(msg.stream_id)
     store.resolveToolCall(msg.call_id, msg.result, msg.seq)
     store.setStreamStatus(msg.stream_id, 'streaming')
+
+    this.ackedToolCalls.delete(msg.call_id)
 
     this.addTraceEvent({
       kind: 'tool_result',
@@ -190,7 +187,7 @@ export class AgentStateMachine {
 
     const store = useAgentStore.getState()
 
-    this.ensureChatMessage(msg.stream_id)
+    store.ensureChatMessage(msg.stream_id)
     store.setStreamStatus(msg.stream_id, 'completed')
 
     this.addTraceEvent({
@@ -208,6 +205,7 @@ export class AgentStateMachine {
     this.flushTokenBatch()
 
     const store = useAgentStore.getState()
+
     store.addError({
       code: msg.code,
       message: msg.message,
@@ -223,15 +221,6 @@ export class AgentStateMachine {
         message: msg.message,
       },
     })
-  }
-
-  private ensureChatMessage(stream_id: string): void {
-    const store = useAgentStore.getState()
-    const existing = store.getChatMessage(stream_id)
-
-    if (!existing) {
-      store.addChatMessage(this.createChatMessage(stream_id))
-    }
   }
 
   private accumulateTokenBatch(msg: TokenMessage): void {
@@ -280,18 +269,6 @@ export class AgentStateMachine {
     })
 
     this.tokenBatch = null
-  }
-
-  private createChatMessage(stream_id: string): ChatMessage {
-    return {
-      id: stream_id,
-      stream_id,
-      tokens: [],
-      tool_calls: [],
-      status: 'streaming',
-      started_at: Date.now(),
-      ended_at: null,
-    }
   }
 
   private addTraceEvent(

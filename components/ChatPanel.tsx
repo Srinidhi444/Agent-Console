@@ -10,11 +10,8 @@ interface ChatPanelProps {
 
 export function ChatPanel({ sendMessage }: ChatPanelProps) {
   const chatMessages = useAgentStore((s) => s.chatMessages)
-
-  const latestMessage = chatMessages.at(-1)
-  const isStreaming =
-    latestMessage?.status === 'streaming' ||
-    latestMessage?.status === 'tool_call_pending'
+  const activeStreamId = useAgentStore((s) => s.activeStreamId)
+  const isStreaming = !!activeStreamId
 
   const [input, setInput] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -137,8 +134,7 @@ export function ChatPanel({ sendMessage }: ChatPanelProps) {
                 : '#fff',
             fontWeight: 600,
             fontSize: '14px',
-            cursor:
-              !input.trim() || isStreaming ? 'not-allowed' : 'pointer',
+            cursor: !input.trim() || isStreaming ? 'not-allowed' : 'pointer',
             transition: 'all 180ms ease',
             height: '42px',
             whiteSpace: 'nowrap',

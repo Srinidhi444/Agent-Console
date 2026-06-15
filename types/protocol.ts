@@ -118,6 +118,7 @@ export interface ChatMessage {
   id: string
   stream_id: string
   tokens: string[]
+  token_seqs: number[]
   tool_calls: ToolCallState[]
   status: StreamStatus
   started_at: number
