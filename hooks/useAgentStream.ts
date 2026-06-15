@@ -6,7 +6,7 @@ import { AgentStateMachine } from '@/lib/agent-state-machine'
 import { useAgentStore } from '@/store/agent-store'
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:4747/ws'
-const RESUME_SETTLE_MS = 4000
+const STREAM_INACTIVITY_MS = 6000
 
 function makeEventId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -16,14 +16,16 @@ export function useAgentStream() {
   const wsManagerRef = useRef<WSManager | null>(null)
   const stateMachineRef = useRef<AgentStateMachine | null>(null)
   const initializedRef = useRef(false)
-  const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const inactivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const setConnectionStatus = useAgentStore((s) => s.setConnectionStatus)
   const addTraceEvent = useAgentStore((s) => s.addTraceEvent)
   const finalizeActiveStreamsOnDisconnect = useAgentStore(
     (s) => s.finalizeActiveStreamsOnDisconnect
   )
-  const finalizeStaleActiveStream = useAgentStore((s) => s.finalizeStaleActiveStream)
+  const finalizeStaleActiveStream = useAgentStore(
+    (s) => s.finalizeStaleActiveStream
+  )
   const lastProcessedSeq = useAgentStore((s) => s.lastProcessedSeq)
   const activeStreamId = useAgentStore((s) => s.activeStreamId)
 
@@ -38,17 +40,17 @@ export function useAgentStream() {
     activeStreamIdRef.current = activeStreamId
   }, [activeStreamId])
 
-  const clearResumeTimer = useCallback(() => {
-    if (resumeTimerRef.current) {
-      clearTimeout(resumeTimerRef.current)
-      resumeTimerRef.current = null
+  const clearInactivityTimer = useCallback(() => {
+    if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current)
+      inactivityTimerRef.current = null
     }
   }, [])
 
-  const armResumeWatchdog = useCallback(() => {
-    clearResumeTimer()
+  const resetInactivityTimer = useCallback(() => {
+    clearInactivityTimer()
 
-    resumeTimerRef.current = setTimeout(() => {
+    inactivityTimerRef.current = setTimeout(() => {
       const store = useAgentStore.getState()
       const activeId = store.activeStreamId
       if (!activeId) return
@@ -63,27 +65,21 @@ export function useAgentStream() {
       ) {
         store.finalizeStaleActiveStream()
         store.addTraceEvent({
-          id: makeEventId(`resume-timeout-${activeId}`),
+          id: makeEventId(`inactivity-${activeId}`),
           kind: 'connection',
           seq: null,
           timestamp: Date.now(),
           stream_id: activeId,
-          summary: `Resume watchdog interrupted stale stream: ${activeId}`,
+          summary: `Stream inactivity timeout: ${activeId}`,
           detail: {
             stream_id: activeId,
             previous_status: msg.status,
-            timeout_ms: RESUME_SETTLE_MS,
+            timeout_ms: STREAM_INACTIVITY_MS,
           },
         })
       }
-    }, RESUME_SETTLE_MS)
-  }, [clearResumeTimer])
-
-  useEffect(() => {
-    if (activeStreamId) {
-      clearResumeTimer()
-    }
-  }, [activeStreamId, clearResumeTimer])
+    }, STREAM_INACTIVITY_MS)
+  }, [clearInactivityTimer])
 
   useEffect(() => {
     if (initializedRef.current) return
@@ -92,7 +88,22 @@ export function useAgentStream() {
     const wsManager = new WSManager(
       WS_URL,
       (msg) => {
-        clearResumeTimer()
+        const store = useAgentStore.getState()
+
+        if (
+          store.activeStreamId &&
+          (msg.type === 'TOKEN' ||
+            msg.type === 'TOOL_CALL' ||
+            msg.type === 'TOOL_RESULT' ||
+            msg.type === 'STREAM_END')
+        ) {
+          resetInactivityTimer()
+        }
+
+        if (msg.type === 'STREAM_END') {
+          clearInactivityTimer()
+        }
+
         stateMachineRef.current?.process(msg)
       },
       (status) => {
@@ -102,15 +113,12 @@ export function useAgentStream() {
           (status === 'reconnecting' || status === 'disconnected') &&
           activeStreamIdRef.current
         ) {
+          clearInactivityTimer()
           finalizeActiveStreamsOnDisconnect()
         }
 
-        if (status === 'resuming') {
-          armResumeWatchdog()
-        }
-
-        if (status === 'connected' && !activeStreamIdRef.current) {
-          clearResumeTimer()
+        if (status === 'resuming' && activeStreamIdRef.current) {
+          resetInactivityTimer()
         }
 
         addTraceEvent({
@@ -133,7 +141,7 @@ export function useAgentStream() {
     wsManager.connect()
 
     return () => {
-      clearResumeTimer()
+      clearInactivityTimer()
       wsManager.disconnect()
       wsManagerRef.current = null
       stateMachineRef.current = null
@@ -143,8 +151,9 @@ export function useAgentStream() {
     setConnectionStatus,
     addTraceEvent,
     finalizeActiveStreamsOnDisconnect,
-    armResumeWatchdog,
-    clearResumeTimer,
+    finalizeStaleActiveStream,
+    resetInactivityTimer,
+    clearInactivityTimer,
   ])
 
   const sendMessage = useCallback((content: string) => {
@@ -159,9 +168,9 @@ export function useAgentStream() {
   }, [])
 
   const resetSession = useCallback(() => {
-    clearResumeTimer()
+    clearInactivityTimer()
     useAgentStore.getState().clearUiState()
-  }, [clearResumeTimer])
+  }, [clearInactivityTimer])
 
   return {
     sendMessage,

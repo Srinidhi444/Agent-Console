@@ -119,6 +119,12 @@ export class WSManager {
             const echo = typeof msg.challenge === 'string' ? msg.challenge : ''
             this.send({ type: 'PONG', echo })
         }
+        if(msg.type=="STREAM_END"){
+            console.log('[WSManager] STREAM_END received', {
+                seq: msg.seq,
+                stream_id: msg.stream_id,
+            })
+        }
 
         this.seqBuffer.push(msg)
         console.log('WS IN', msg.type, msg.seq)
