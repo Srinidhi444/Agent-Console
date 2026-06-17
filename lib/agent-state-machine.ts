@@ -85,6 +85,12 @@ export class AgentStateMachine {
   }
 
   private handleToolCall(msg: ToolCallMessage): void {
+    console.log('[AgentStateMachine] handleToolCall', {
+  seq: msg.seq,
+  stream_id: msg.stream_id,
+  call_id: msg.call_id,
+  tool_name: msg.tool_name,
+})
     if (!this.ackedToolCalls.has(msg.call_id)) {
       this.wsManager.send({
         type: 'TOOL_ACK',

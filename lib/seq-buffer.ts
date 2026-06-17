@@ -17,19 +17,16 @@ export class SeqBuffer {
 
     const seq = msg.seq
 
-    if (this.shouldTreatAsSequenceRestart(seq)) {
-      console.warn('[SeqBuffer] Sequence restart detected, resetting local state')
-      this.buffer.clear()
-      this.processedSeqs.clear()
-      this.nextExpectedSeq = seq
-    }
-
     if (this.processedSeqs.has(seq)) return
     if (this.buffer.has(seq)) return
 
+    if (seq < this.nextExpectedSeq) {
+      return
+    }
+
     if (seq === this.nextExpectedSeq) {
       this.processAndFlush(msg)
-    } else if (seq > this.nextExpectedSeq) {
+    } else {
       this.buffer.set(seq, msg)
     }
   }
@@ -55,16 +52,11 @@ export class SeqBuffer {
     }
   }
 
-  private shouldTreatAsSequenceRestart(incomingSeq: number): boolean {
-    if (this.nextExpectedSeq <= 1) return false
-    if (incomingSeq === 1) return true
-    return incomingSeq < this.nextExpectedSeq && incomingSeq <= 5
-  }
-
   resetForResume(lastProcessedSeq: number): void {
-    this.nextExpectedSeq = lastProcessedSeq + 1
-    this.buffer.clear()
-  }
+  this.nextExpectedSeq = lastProcessedSeq + 1
+  this.buffer.clear()
+  this.processedSeqs.clear()
+}
 
   reset(): void {
     this.nextExpectedSeq = 1

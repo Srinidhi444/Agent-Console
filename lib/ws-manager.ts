@@ -104,7 +104,12 @@ export class WSManager {
 
         try {
             msg = JSON.parse(event.data as string)
-            console.log('WS IN RAW', msg.type, msg.seq, msg)
+             console.log('[WSManager] TOOL_CALL received', {
+                seq: msg.seq,
+                stream_id: msg.stream_id,
+                call_id: msg.call_id,
+                tool_name: msg.tool_name,
+            })
         } catch {
             console.warn('[WSManager] Malformed JSON received:', event.data)
             return

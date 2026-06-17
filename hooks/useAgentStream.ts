@@ -26,15 +26,10 @@ export function useAgentStream() {
   const finalizeStaleActiveStream = useAgentStore(
     (s) => s.finalizeStaleActiveStream
   )
-  const lastProcessedSeq = useAgentStore((s) => s.lastProcessedSeq)
+
+  // ✅ CHANGE 1: keep only activeStreamId as a ref — lastProcessedSeq ref removed
   const activeStreamId = useAgentStore((s) => s.activeStreamId)
-
-  const lastProcessedSeqRef = useRef(lastProcessedSeq)
   const activeStreamIdRef = useRef(activeStreamId)
-
-  useEffect(() => {
-    lastProcessedSeqRef.current = lastProcessedSeq
-  }, [lastProcessedSeq])
 
   useEffect(() => {
     activeStreamIdRef.current = activeStreamId
@@ -130,7 +125,8 @@ export function useAgentStream() {
           detail: { status },
         })
       },
-      () => lastProcessedSeqRef.current
+      // ✅ CHANGE 2: read directly from store — never stale
+      () => useAgentStore.getState().lastProcessedSeq
     )
 
     const stateMachine = new AgentStateMachine(wsManager)
@@ -167,9 +163,11 @@ export function useAgentStream() {
     })
   }, [])
 
+  // ✅ CHANGE 3: also reset seq buffer on session clear so fresh connect starts from seq 1
   const resetSession = useCallback(() => {
     clearInactivityTimer()
     useAgentStore.getState().clearUiState()
+    wsManagerRef.current?.resetBuffer()
   }, [clearInactivityTimer])
 
   return {
